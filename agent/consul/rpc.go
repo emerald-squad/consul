@@ -189,7 +189,7 @@ func (s *Server) handleConn(conn net.Conn, isTLS bool) {
 		s.handleInsecureConn(conn)
 
 	case pool.RPCGRPC:
-		s.GRPCListener.Handle(conn)
+		s.grpcHandler.Handle(conn)
 
 	default:
 		if !s.handleEnterpriseRPCConn(typ, conn, isTLS) {
@@ -258,7 +258,7 @@ func (s *Server) handleNativeTLS(conn net.Conn) {
 		s.handleSnapshotConn(tlsConn)
 
 	case pool.ALPN_RPCGRPC:
-		s.GRPCListener.Handle(conn)
+		s.grpcHandler.Handle(conn)
 
 	case pool.ALPN_WANGossipPacket:
 		if err := s.handleALPN_WANGossipPacketStream(tlsConn); err != nil && err != io.EOF {

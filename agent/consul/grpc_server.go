@@ -7,53 +7,65 @@ import (
 	"google.golang.org/grpc"
 )
 
-func newGRPCServer(listener net.Listener) (interface{}, error) {
+func newGRPCHandler(addr net.Addr) *grpcHandler {
+	conns := make(chan net.Conn)
+
 	lis := &grpcListener{
-		addr:  s.Listener.Addr(),
-		conns: make(chan net.Conn),
+		addr:  addr,
+		conns: conns,
 	}
 
 	// We don't need to pass tls.Config to the server since it's multiplexed
 	// behind the RPC listener, which already has TLS configured.
 	srv := grpc.NewServer(
-		grpc.StatsHandler(grpcStatsHandler),
-		grpc.StreamInterceptor(GRPCCountingStreamInterceptor),
+	// TODO(streaming): grpc.StatsHandler(grpcStatsHandler),
+	// TODO(streaming): grpc.StreamInterceptor(GRPCCountingStreamInterceptor),
 	)
-	agentpb.RegisterConsulServer(srv, NewGRPCService(s))
-	if s.config.GRPCTestServerEnabled {
-		agentpb.RegisterTestServer(srv, &GRPCTest{srv: s})
+
+	// TODO(streaming): add gRPC services to srv here
+
+	handler := &grpcHandler{
+		conns: conns,
+		run: func() error {
+			return srv.Serve(lis)
+		},
+		shutdown: func() error {
+			srv.Stop()
+			return nil
+		},
 	}
-
-	go srv.Serve(lis)
-	s.GRPCListener = lis
-
-	// Set up a gRPC client connection to the above listener.
-	dialer := newDialer(s.serverLookup, s.tlsConfigurator.OutgoingRPCWrapper())
-	conn, err := grpc.Dial(lis.Addr().String(),
-		grpc.WithInsecure(),
-		grpc.WithContextDialer(dialer),
-		grpc.WithDisableRetry(),
-		grpc.WithStatsHandler(grpcStatsHandler),
-		grpc.WithBalancerName("pick_first"))
-	if err != nil {
-		return err
-	}
-
-	s.grpcConn = conn
-
-	return nil
+	return handler
 }
 
-// TODO: document how each of the methods is used.
+// grpcHandler implements a handler for the rpc server listener, and the
+// agent.Component interface for managing the lifecycle of the grpc.Server.
+type grpcHandler struct {
+	conns    chan net.Conn
+	run      func() error
+	shutdown func() error
+}
+
+// Handle the conenction by sending it to a channel for the grpc.Server to receive.
+func (h *grpcHandler) Handle(conn net.Conn) {
+	h.conns <- conn
+}
+
+func (h *grpcHandler) Run() error {
+	return h.run()
+}
+
+func (h *grpcHandler) Shutdown() error {
+	return h.shutdown()
+}
+
+// grpcListener implements net.Listener for grpc.Server.
 type grpcListener struct {
 	conns chan net.Conn
 	addr  net.Addr
 }
 
-func (l *grpcListener) Handle(conn net.Conn) {
-	l.conns <- conn
-}
-
+// Accept blocks until a connection is received from Handle, and then returns the
+// connection. Accept implements part of the net.Listener interface for grpc.Server.
 func (l *grpcListener) Accept() (net.Conn, error) {
 	return <-l.conns, nil
 }
@@ -62,18 +74,25 @@ func (l *grpcListener) Addr() net.Addr {
 	return l.addr
 }
 
+// Close does nothing. The connections are managed by the caller.
 func (l *grpcListener) Close() error {
 	return nil
 }
 
-// TODO: grpcListener implementation for when grpc is not enabled.
-type noopGRPCListener struct {
+type noopGRPCHandler struct {
 	logger hclog.Logger
 }
 
-func (l *noopGRPCListener) Handle(conn net.Conn) {
-	l.logger.Error("GRPC conn opened but GRPC is not enabled, closing",
-		"conn", logConn(conn),
-	)
-	conn.Close()
+func (h *noopGRPCHandler) Handle(conn net.Conn) {
+	h.logger.Error("gRPC conn opened but gRPC RPC is disabled, closing",
+		"conn", logConn(conn))
+	_ = conn.Close()
+}
+
+func (h *noopGRPCHandler) Run() error {
+	return nil
+}
+
+func (h *noopGRPCHandler) Shutdown() error {
+	return nil
 }

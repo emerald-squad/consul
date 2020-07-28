@@ -493,6 +493,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("Failed to start Consul server: %v", err)
 		}
+		// TODO: start components.
 		a.delegate = server
 	} else {
 		client, err := consul.NewClient(consulCfg, options...)
