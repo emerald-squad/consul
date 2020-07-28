@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/go-connlimit"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
+	"golang.org/x/sync/errgroup"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -308,6 +309,21 @@ type Agent struct {
 
 	// enterpriseAgent embeds fields that we only access in consul-enterprise builds
 	enterpriseAgent
+
+	components []component
+}
+
+// component is an interface for managing the lifecycle of the components that
+// make up an agent.
+type component interface {
+	// Run the component in a goroutine. If run exits with an error the agent
+	// will be shutdown.
+	// If the component can exit not should not cause an agent shutdown, return nil.
+	Run() error
+	// Shutdown the component. The component must return from Run when Shutdown
+	// is called. The agent shutdown will wait for all Run goroutines to exit
+	// before exiting the process.
+	Shutdown() error
 }
 
 // New process the desired options and creates a new Agent.
@@ -489,6 +505,10 @@ func (a *Agent) Start(ctx context.Context) error {
 
 	// Setup either the client or the server.
 	if c.ServerMode {
+		comps, serverOpts := newServerComponents(consulCfg)
+		options = append(options, serverOpts...)
+		a.components = append(a.components, comps...)
+
 		server, err := consul.NewServer(consulCfg, options...)
 		if err != nil {
 			return fmt.Errorf("Failed to start Consul server: %v", err)
@@ -649,6 +669,13 @@ func (a *Agent) Start(ctx context.Context) error {
 		go a.retryJoinWAN()
 	}
 
+	// TODO: use a context? needs to be a different context not the startup context
+	// TODO:
+	var group errgroup.Group
+	for _, comp := range a.components {
+		group.Go(comp.Run)
+	}
+	// TODO: store a reference to group.Wait for shutdown
 	return nil
 }
 
@@ -1500,6 +1527,12 @@ func (a *Agent) ShutdownEndpoints() {
 		}
 	}
 	a.httpServers = nil
+
+	for _, comp := range a.components {
+		// TODO: capture errors to log or return
+		comp.Shutdown()
+	}
+	// TODO: wait on component errgroup
 
 	a.logger.Info("Waiting for endpoints to shut down")
 	a.wgServers.Wait()
