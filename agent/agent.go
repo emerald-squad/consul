@@ -502,26 +502,12 @@ func (a *Agent) Start(ctx context.Context) error {
 		consul.WithTLSConfigurator(a.tlsConfigurator),
 		consul.WithConnectionPool(a.connPool),
 	}
-
-	// Setup either the client or the server.
-	if c.ServerMode {
-		comps, serverOpts := newServerComponents(consulCfg)
-		options = append(options, serverOpts...)
-		a.components = append(a.components, comps...)
-
-		server, err := consul.NewServer(consulCfg, options...)
-		if err != nil {
-			return fmt.Errorf("Failed to start Consul server: %v", err)
-		}
-		// TODO: start components.
-		a.delegate = server
-	} else {
-		client, err := consul.NewClient(consulCfg, options...)
-		if err != nil {
-			return fmt.Errorf("Failed to start Consul client: %v", err)
-		}
-		a.delegate = client
+	d, comps, err := setupDelegate(options, c)
+	if err != nil {
+		return err
 	}
+	a.delegate = d
+	a.components = append(a.components, comps...)
 
 	// the staggering of the state syncing depends on the cluster size.
 	a.sync.ClusterSize = func() int { return len(a.delegate.LANMembers()) }
