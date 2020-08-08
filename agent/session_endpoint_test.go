@@ -256,7 +256,7 @@ func TestSessionCreate_DefaultCheck(t *testing.T) {
 
 	req, _ := http.NewRequest("PUT", "/v1/session/create", body)
 	resp := httptest.NewRecorder()
-	retry.Run(t, func(r *retry.R) {
+	retry.RunWith(retry.TwoSeconds(), t, func(r *retry.R) {
 		obj, err := a.srv.SessionCreate(resp, req)
 		if err != nil {
 			r.Fatalf("err: %v", err)
