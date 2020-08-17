@@ -170,7 +170,7 @@ type Agent struct {
 	logger hclog.InterceptLogger
 
 	// In-memory sink used for collecting metrics
-	MemSink *metrics.InmemSink
+	MemSink MetricsHandler
 
 	// delegate is either a *consul.Server or *consul.Client
 	// depending on the configuration
@@ -348,7 +348,7 @@ func New(bd BaseDeps) (*Agent, error) {
 		tlsConfigurator: bd.TLSConfigurator,
 		config:          bd.RuntimeConfig,
 		cache:           bd.Cache,
-		MemSink:         bd.TelemetrySink,
+		MemSink:         bd.MetricsHandler,
 		connPool:        bd.ConnPool,
 		autoConf:        bd.AutoConfig,
 	}
